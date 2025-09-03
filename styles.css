@@ -1,0 +1,386 @@
+* {
+  box-sizing: border-box
+}
+
+html, body {
+  height: 100%
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 800px at 70% -20%, #fdf2f8 0, #fce7f3 30%, #faf5ff 60%, #ffffff 100%);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  color: #1f2937
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .75rem 1rem
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: .2px
+}
+
+.brand span {
+  opacity: .6;
+  font-weight: 600
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: .5rem
+}
+
+.btn {
+  appearance: none;
+  border: 0;
+  background: #111827;
+  color: #fff;
+  padding: .55rem .9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  cursor: pointer;
+  transform: translateZ(0);
+  transition: filter .2s ease, transform .1s ease;
+  user-select: none;
+  white-space: nowrap
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed
+}
+
+.btn.alt {
+  background: #6b7280
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 2px solid #111827;
+  color: #111827
+}
+
+.pill {
+  padding: .35rem .6rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, .06);
+  font-size: .85rem
+}
+
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns:1fr;
+  place-items: center;
+  padding: 0 1rem 1rem
+}
+
+.canvasWrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(17, 24, 39, .15), inset 0 0 0 1px rgba(17, 24, 39, .05);
+  background: #fff
+}
+
+canvas {
+  display: block;
+  border-radius: 20px
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none
+}
+
+.hudRow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .5rem .75rem
+}
+
+.hudTop {
+  top: 0
+}
+
+.hudBottom {
+  bottom: 0
+}
+
+.tag {
+  pointer-events: auto
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  background: rgba(255, 255, 255, .8);
+  padding: .35rem .6rem;
+  border-radius: 12px;
+  font-weight: 700
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: .85rem
+}
+
+.centerOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center
+}
+
+.card {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, .95);
+  backdrop-filter: saturate(120%) blur(6px);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(17, 24, 39, .15);
+  padding: 1rem;
+  max-width: min(520px, 92vw)
+}
+
+.h1 {
+  font-size: 1.9rem;
+  line-height: 1.2;
+  margin: 0 0 .5rem 0;
+  font-weight: 900
+}
+
+.subtitle {
+  opacity: .7;
+  margin: .25rem 0 1rem 0
+}
+
+.row {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap
+}
+
+.select {
+  appearance: none;
+  border: 2px solid #111827;
+  border-radius: 12px;
+  padding: .5rem .6rem;
+  font-weight: 700;
+  background: #fff
+}
+
+.grid {
+  display: grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap: .5rem
+}
+
+.kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .85rem;
+  background: #111827;
+  color: #fff;
+  border-radius: 8px;
+  padding: .25rem .4rem
+}
+
+.footer {
+  padding: .75rem 1rem;
+  border-top: 1px dashed rgba(17, 24, 39, .1);
+  text-align: center;
+  font-size: .9rem;
+  color: #6b7280
+}
+
+.toggle {
+  display: inline-flex;
+  gap: .3rem;
+  align-items: center;
+  padding: .35rem .5rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, .06);
+  cursor: pointer;
+  user-select: none
+}
+
+.switch {
+  width: 36px;
+  height: 22px;
+  border-radius: 999px;
+  background: #111827;
+  position: relative
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  transition: left .15s ease
+}
+
+.themeOn .knob {
+  left: 16px
+}
+
+.mobileHint {
+  display: none
+}
+
+@media (max-width: 740px) {
+  .grid {
+    grid-template-columns:1fr
+  }
+
+  .mobileHint {
+    display: inline
+  }
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent
+}
+
+canvas {
+  touch-action: none
+}
+
+@media (max-width: 740px) {
+  .controls {
+    flex-wrap: wrap;
+    justify-content: flex-end
+  }
+
+  .header {
+    flex-wrap: wrap
+  }
+
+  .brand {
+    font-size: 1.05rem
+  }
+}
+
+.h1.gradient {
+  background: linear-gradient(90deg, #ec4899, #8b5cf6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent
+}
+
+.card.cute {
+  position: relative;
+  border-radius: 20px
+}
+
+.bubbles {
+  position: absolute;
+  inset: -10% -5% auto -5%;
+  height: 140%;
+  pointer-events: none;
+  overflow: hidden
+}
+
+.bubbles span {
+  position: absolute;
+  bottom: -10%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #fff, rgba(255, 255, 255, .4) 40%, transparent 60%), linear-gradient(180deg, #fbcfe8, #e9d5ff);
+  opacity: .7;
+  animation: float 8s linear infinite
+}
+
+.bubbles span:nth-child(2) {
+  left: 15%;
+  animation-duration: 9s;
+  width: 10px;
+  height: 10px
+}
+
+.bubbles span:nth-child(3) {
+  left: 30%;
+  animation-duration: 7s
+}
+
+.bubbles span:nth-child(4) {
+  left: 45%;
+  animation-duration: 10s;
+  width: 8px;
+  height: 8px
+}
+
+.bubbles span:nth-child(5) {
+  left: 60%;
+  animation-duration: 6.5s
+}
+
+.bubbles span:nth-child(6) {
+  left: 75%;
+  animation-duration: 8.5s;
+  width: 10px;
+  height: 10px
+}
+
+.bubbles span:nth-child(7) {
+  left: 90%;
+  animation-duration: 7.5s
+}
+
+.bubbles span:nth-child(8) {
+  left: 5%;
+  animation-duration: 11s
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0) translateX(0)
+  }
+  50% {
+    transform: translateY(-50vh) translateX(-8px)
+  }
+  100% {
+    transform: translateY(-100vh) translateX(8px)
+  }
+}
+
+.toggle.on .knob {
+  left: 16px
+}
+
+.select[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: .6
+}

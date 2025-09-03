@@ -1,0 +1,725 @@
+(() => {
+    const q = e => document.querySelector(e);
+    const canvas = q('#game');
+    const ctx = canvas.getContext('2d');
+    const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+    const state = {
+        running: false,
+        paused: false,
+        over: false,
+        time: 60,
+        score: 0,
+        lives: 3,
+        spawn: 0,
+        spawnCandy: 0,
+        spawnFriend: 0,
+        entities: [],
+        candies: [],
+        friends: [],
+        gloomies: [],
+        keys: {},
+        touch: null,
+        diff: 'normal',
+        contrast: false,
+        best: 0,
+        particles: [],
+    };
+    const ui = {
+        score: q('#score'),
+        time: q('#time'),
+        lives: q('#lives'),
+        best: q('#best'),
+        play: q('#play'),
+        pause: q('#pause'),
+        restart: q('#restart'),
+        overlay: q('#overlay'),
+        modePill: q('#modePill'),
+        difficultyBig: q('#difficultyBig'),
+        startBig: q('#startBig'),
+        theme: q('#theme'),
+        sound: q('#sound'),
+    };
+    const storeKey = k => `kitty_game_${k}_${state.diff}`;
+    const clamp = (v, min, max) => v < min ? min : v > max ? max : v;
+    const r = () => Math.random();
+    const now = () => performance.now();
+    const dist2 = (a, b) => {
+        const dx = a.x - b.x, dy = a.y - b.y;
+        return dx * dx + dy * dy;
+    };
+    const pick = a => a[(a.length * r()) | 0];
+    const setFavicon = () => {
+        const s = 512, cn = document.createElement('canvas');
+        cn.width = s * 2;
+        cn.height = s * 2;
+        const c = cn.getContext('2d');
+        c.scale(2, 2);
+        const hc = state.contrast, x = s / 2, y = s / 2, sz = s * 0.45;
+        c.save();
+        c.translate(x, y);
+        c.fillStyle = hc ? '#000' : '#fef2f2';
+        c.strokeStyle = hc ? '#000' : '#111827';
+        c.lineWidth = s * 0.015;
+        c.beginPath();
+        c.ellipse(0, 0, sz * 1.1, sz, 0, 0, Math.PI * 2);
+        c.fill();
+        c.stroke();
+        c.beginPath();
+        c.moveTo(-sz * .6, -sz * .4);
+        c.lineTo(-sz * 1.05, -sz * .95);
+        c.lineTo(-sz * .2, -sz * .7);
+        c.closePath();
+        c.fill();
+        c.stroke();
+        c.beginPath();
+        c.moveTo(sz * .6, -sz * .4);
+        c.lineTo(sz * 1.05, -sz * .95);
+        c.lineTo(sz * .2, -sz * .7);
+        c.closePath();
+        c.fill();
+        c.stroke();
+        c.fillStyle = hc ? '#111' : '#111827';
+        c.beginPath();
+        c.arc(-sz * .35, -sz * .05, sz * .08, 0, Math.PI * 2);
+        c.arc(sz * .35, -sz * .05, sz * .08, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = hc ? '#ff0' : '#fbbf24';
+        c.beginPath();
+        c.arc(0, sz * .08, sz * .1, 0, Math.PI * 2);
+        c.fill();
+        c.restore();
+        const url = cn.toDataURL('image/png');
+        let link = document.getElementById('favicon');
+        if (!link) {
+            link = document.createElement('link');
+            link.id = 'favicon';
+            link.rel = 'icon';
+            link.type = 'image/png';
+            document.head.appendChild(link);
+        }
+        link.href = url;
+    };
+    const setModeLabel = () => {
+        if (!ui.modePill) {
+            return;
+        }
+        const map = {chill: 'Chill', normal: 'Normal', spicy: 'Spicy'};
+        ui.modePill.textContent = map[state.diff] || state.diff;
+    };
+    const audio = {
+        ctx: null,
+        unlocked: false,
+        muted: false,
+        ensure() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext
+                    || window.webkitAudioContext)();
+            }
+        },
+        unlock() {
+            this.ensure();
+            if (this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+            this.unlocked = true;
+        },
+        _toneAt(freq, type, vol, attack, dur, decay, start) {
+            if (this.muted || !this.unlocked) {
+                return;
+            }
+            const t = start ?? this.ctx.currentTime;
+            const o = this.ctx.createOscillator();
+            const g = this.ctx.createGain();
+            o.type = type;
+            o.frequency.setValueAtTime(freq, t);
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(vol, t + attack);
+            g.gain.exponentialRampToValueAtTime(0.0001,
+                t + attack + dur + decay);
+            o.connect(g).connect(this.ctx.destination);
+            o.start(t);
+            o.stop(t + attack + dur + decay);
+        },
+        tone({
+            freq = 440,
+            type = 'sine',
+            dur = 0.12,
+            vol = 0.15,
+            attack = 0.005,
+            decay = 0.08,
+            start = null,
+        } = {}) {this._toneAt(freq, type, vol, attack, dur, decay, start);},
+        seq(notes, tempo = 12) {
+            if (this.muted || !this.unlocked) {
+                return;
+            }
+            this.ensure();
+            let t = this.ctx.currentTime;
+            const step = 1 / tempo;
+            for (const f of notes) {
+                if (f > 0) {
+                    this.tone({
+                        freq: f,
+                        type: 'triangle',
+                        dur: step * 0.8,
+                        vol: 0.14,
+                        start: t,
+                    });
+                }
+                t += step;
+            }
+        },
+    };
+    const sfx = {
+        start() {audio.seq([660, 0, 880, 0, 990], 14);},
+        candy() {
+            audio.tone({freq: 880, type: 'triangle', dur: 0.08, vol: 0.18});
+        },
+        hit() {audio.tone({freq: 220, type: 'sawtooth', dur: 0.2, vol: 0.18});},
+        friend() {audio.tone({freq: 660, type: 'sine', dur: 0.1, vol: 0.12});},
+        gameover() {audio.seq([660, 0, 440, 0, 330], 10);},
+    };
+    const setCanvas = () => {
+        const isSmall = window.innerWidth < 740;
+        const targetW = Math.floor(window.innerWidth * (isSmall ? 0.98 : 0.96));
+        const targetH = Math.floor(window.innerHeight * (isSmall ? 0.82 : 0.7));
+        const w = clamp(targetW, 320, 1100);
+        const h = clamp(targetH, 360, 760);
+        const p = dpr();
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        canvas.width = Math.floor(w * p);
+        canvas.height = Math.floor(h * p);
+        ctx.setTransform(p, 0, 0, p, 0, 0);
+        state.scale = p;
+        setFavicon();
+    };
+    const themeSwap = () => {
+        document.body.classList.toggle('themeOn', state.contrast);
+        document.body.style.background = state.contrast
+            ? '#ffffff'
+            : 'radial-gradient(1200px 800px at 70% -20%,#fdf2f8 0,#fce7f3 30%,#faf5ff 60%,#ffffff 100%)';
+        setFavicon();
+    };
+    const reset = () => {
+        state.running = false;
+        state.paused = false;
+        state.over = false;
+        state.time = 60;
+        state.score = 0;
+        state.lives = 3;
+        state.spawn = 0;
+        state.spawnCandy = 0;
+        state.spawnFriend = 0;
+        state.entities = [];
+        state.candies = [];
+        state.friends = [];
+        state.gloomies = [];
+        spawnPlayer();
+    };
+    const spawnPlayer = () => {
+        state.player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: 0,
+            vy: 0,
+            speed: state.diff === 'chill' ? 280 : state.diff === 'spicy'
+                ? 420
+                : 340,
+            size: 24 * 1.5,
+            shield: 0,
+        };
+    };
+    const addCandy = () => {
+        const s = 12 + (r() * 10);
+        state.candies.push({
+            x: 20 + r() * (canvas.width - 40),
+            y: 20 + r() * (canvas.height - 40),
+            vx: (r() - .5) * .6,
+            vy: (r() - .5) * .6,
+            size: s,
+            val: 10,
+        });
+    };
+    const addGloomy = () => {
+        const s = 18 + (r() * 14);
+        const sp = state.diff === 'chill' ? 1.4 : state.diff === 'spicy'
+            ? 2.3
+            : 1.8;
+        state.gloomies.push({
+            x: r() < .5 ? 0 : canvas.width,
+            y: r() * canvas.height,
+            vx: (r() < .5 ? 1 : -1) * sp,
+            vy: (r() - .5) * sp,
+            size: s,
+        });
+    };
+    const addFriend = () => {
+        const s = 18 + (r() * 10);
+        state.friends.push({
+            x: r() * canvas.width,
+            y: r() * canvas.height,
+            phase: r() * Math.PI * 2,
+            size: s,
+        });
+        if (!audio.muted && audio.unlocked) {
+            sfx.friend();
+        }
+    };
+    const easeOut = t => 1 - Math.pow(1 - t, 2);
+    const drawKitty = (x, y, s, hc) => {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = hc ? '#000' : '#fef2f2';
+        ctx.strokeStyle = hc ? '#000' : '#111827';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s * 1.1, s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * .6, -s * .4);
+        ctx.lineTo(-s * 1.05, -s * .95);
+        ctx.lineTo(-s * .2, -s * .7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * .6, -s * .4);
+        ctx.lineTo(s * 1.05, -s * .95);
+        ctx.lineTo(s * .2, -s * .7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = hc ? '#fff' : '#111827';
+        ctx.beginPath();
+        ctx.arc(-s * .35, -s * .05, s * .07, 0, Math.PI * 2);
+        ctx.arc(s * .35, -s * .05, s * .07, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = hc ? '#ff0' : '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(0, s * .08, s * .09, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = hc ? '#000' : '#f43f5e';
+        ctx.beginPath();
+        ctx.ellipse(-s * .72, -s * .42, s * .22, s * .14, 0, 0, Math.PI * 2);
+        ctx.ellipse(-s * .42, -s * .42, s * .22, s * .14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = hc ? '#111827' : '#111827';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.45, -s * 0.02);
+        ctx.lineTo(-s * 0.85, -s * 0.10);
+        ctx.moveTo(-s * 0.45, s * 0.08);
+        ctx.lineTo(-s * 0.85, s * 0.08);
+        ctx.moveTo(-s * 0.45, s * 0.18);
+        ctx.lineTo(-s * 0.85, s * 0.26);
+        ctx.moveTo(s * 0.45, -s * 0.02);
+        ctx.lineTo(s * 0.85, -s * 0.10);
+        ctx.moveTo(s * 0.45, s * 0.08);
+        ctx.lineTo(s * 0.85, s * 0.08);
+        ctx.moveTo(s * 0.45, s * 0.18);
+        ctx.lineTo(s * 0.85, s * 0.26);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, s * 0.14);
+        ctx.lineTo(0, s * 0.22);
+        ctx.moveTo(0, s * 0.22);
+        ctx.quadraticCurveTo(s * 0.10, s * 0.32, s * 0.20, s * 0.24);
+        ctx.moveTo(0, s * 0.22);
+        ctx.quadraticCurveTo(-s * 0.10, s * 0.32, -s * 0.20, s * 0.24);
+        ctx.stroke();
+        ctx.restore();
+    };
+    const drawCandy = (c, hc) => {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.fillStyle = hc ? '#000' : '#ef4444';
+        ctx.strokeStyle = hc ? '#000' : '#111827';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.size * .6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-c.size * .6, 0);
+        ctx.lineTo(-c.size * 1.0, -c.size * .5);
+        ctx.lineTo(-c.size * 1.0, c.size * .5);
+        ctx.closePath();
+        ctx.moveTo(c.size * .6, 0);
+        ctx.lineTo(c.size * 1.0, -c.size * .5);
+        ctx.lineTo(c.size * 1.0, c.size * .5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    };
+    const drawGloomy = (g, hc) => {
+        ctx.save();
+        ctx.translate(g.x, g.y);
+        const angle = Math.atan2(g.vy || 0.0001, g.vx || 0.0001);
+        ctx.rotate(angle);
+        const base = g.size;
+        const fill = hc ? '#000' : '#111827';
+        const stroke = hc ? '#000' : '#22c55e';
+        let px = -1e6, py = -1e6;
+        if (state.player) {
+            px = state.player.x;
+            py = state.player.y;
+        }
+        const d = Math.hypot(g.x - px, g.y - py);
+        const near = clamp(
+            1 - d / (Math.min(canvas.width, canvas.height) * 0.35), 0, 1);
+        const pulse = 0.5 + 0.5 * Math.sin(now() / 180);
+        if (!hc && near > 0.25) {
+            ctx.shadowColor = `rgba(34,197,94,${0.2 + 0.4 * near * pulse})`;
+            ctx.shadowBlur = 8 + 12 * near * pulse;
+        } else {ctx.shadowBlur = 0;}
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < 12; i++) {
+            const rad = (i % 2 === 0) ? base : base * 0.55;
+            const a = (Math.PI * 2 / 12) * i;
+            ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = hc ? '#fff' : '#22c55e';
+        ctx.beginPath();
+        ctx.ellipse(-base * 0.3, -base * 0.1, base * 0.14, base * 0.09, 0, 0,
+            Math.PI * 2);
+        ctx.ellipse(base * 0.3, -base * 0.1, base * 0.14, base * 0.09, 0, 0,
+            Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = hc ? '#fff' : '#22c55e';
+        ctx.beginPath();
+        ctx.moveTo(-base * 0.25, base * 0.28);
+        ctx.lineTo(0, base * 0.38);
+        ctx.lineTo(base * 0.25, base * 0.28);
+        ctx.stroke();
+        ctx.restore();
+    };
+    const drawFriend = (f, hc) => {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.fillStyle = hc ? '#000' : '#dbeafe';
+        ctx.strokeStyle = hc ? '#000' : '#111827';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, f.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = hc ? '#fff' : '#111827';
+        ctx.beginPath();
+        ctx.arc(-f.size * .25, -f.size * .1, f.size * .1, 0, Math.PI * 2);
+        ctx.arc(f.size * .25, -f.size * .1, f.size * .1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    };
+    const spawnParticles = (x, y) => {
+        for (let i = 0; i < 10; i++) {
+            state.particles.push({
+                x,
+                y,
+                vx: (r() - .5) * 3,
+                vy: (r() - .5) * 3,
+                life: 0.4 + 0.8 * r(),
+                size: 1.5 + 2 * r(),
+                color: pick(
+                    ['#f43f5e', '#f59e0b', '#10b981', '#3b82f6', '#a855f7']),
+            });
+        }
+    };
+    const update = dt => {
+        if (!state.running || state.paused || state.over) {
+            return;
+        }
+        state.time -= dt;
+        if (state.time <= 0) {
+            state.time = 0;
+            gameOver();
+            return;
+        }
+        ui.time.textContent = Math.ceil(state.time).toString();
+        const p = state.player;
+        const accel = state.diff === 'chill' ? 1600 : state.diff === 'spicy'
+            ? 2600
+            : 2000;
+        let ax = 0, ay = 0;
+        if (state.keys['ArrowLeft'] || state.keys['a']) {
+            ax -= accel;
+        }
+        if (state.keys['ArrowRight'] || state.keys['d']) {
+            ax += accel;
+        }
+        if (state.keys['ArrowUp'] || state.keys['w']) {
+            ay -= accel;
+        }
+        if (state.keys['ArrowDown'] || state.keys['s']) {
+            ay += accel;
+        }
+        if (state.touch) {
+            ax += (state.touch.dx || 0) * accel * 1.2;
+            ay += (state.touch.dy || 0) * accel * 1.2;
+        }
+        const maxv = p.speed;
+        p.vx = clamp(p.vx + ax * dt, -maxv, maxv);
+        p.vy = clamp(p.vy + ay * dt, -maxv, maxv);
+        const effW = canvas.width / (state.scale || 1);
+        const effH = canvas.height / (state.scale || 1);
+        p.x = clamp(p.x + p.vx * dt, 20, effW - 20);
+        p.y = clamp(p.y + p.vy * dt, 20, effH - 20);
+        if (p.shield > 0) {
+            p.shield -= dt;
+        }
+        state.spawn += dt;
+        state.spawnCandy += dt;
+        state.spawnFriend += dt;
+        const gloomyRate = state.diff === 'chill' ? 1.2 : state.diff === 'spicy'
+            ? 0.7
+            : 0.9;
+        const candyRate = state.diff === 'chill' ? 0.45 : state.diff === 'spicy'
+            ? 0.25
+            : 0.32;
+        const friendRate = 1.8;
+        if (state.spawn >= gloomyRate) {
+            state.spawn = 0;
+            addGloomy();
+        }
+        if (state.spawnCandy >= candyRate) {
+            state.spawnCandy = 0;
+            addCandy();
+        }
+        if (state.spawnFriend >= friendRate) {
+            state.spawnFriend = 0;
+            addFriend();
+        }
+        for (const c of state.candies) {
+            c.x += c.vx * dt * 60;
+            c.y += c.vy * dt * 60;
+            if (c.x < 16 || c.x > effW - 16) {
+                c.vx *= -1;
+            }
+            if (c.y < 16 || c.y > effH - 16) {
+                c.vy *= -1;
+            }
+        }
+        for (const g of state.gloomies) {
+            g.x += g.vx * dt * 60;
+            g.y += g.vy * dt * 60;
+            if (g.x < -40 || g.x > effW + 40) {
+                g.vx *= -1;
+            }
+            if (g.y < -40 || g.y > effH + 40) {
+                g.vy *= -1;
+            }
+        }
+        for (const f of state.friends) {
+            f.phase += dt;
+            f.x += Math.cos(f.phase) * .6 * dt * 60;
+            f.y += Math.sin(f.phase) * .6 * dt * 60;
+            f.x = clamp(f.x, 16, effW - 16);
+            f.y = clamp(f.y, 16, effH - 16);
+        }
+        for (let i = state.candies.length - 1; i >= 0; i--) {
+            const c = state.candies[i];
+            if (dist2(c, p) < (c.size + p.size) * .6 * (c.size + p.size) * .6) {
+                state.candies.splice(i, 1);
+                state.score += c.val;
+                ui.score.textContent = state.score.toString();
+                spawnParticles(c.x, c.y);
+                if (!audio.muted && audio.unlocked) {
+                    sfx.candy();
+                }
+                if (state.score > state.best) {
+                    state.best = state.score;
+                    ui.best.textContent = state.best.toString();
+                    localStorage.setItem(storeKey('best'), String(state.best));
+                }
+            }
+        }
+        if (p.shield <= 0) {
+            for (let i = state.gloomies.length - 1; i >= 0; i--) {
+                const g = state.gloomies[i];
+                if (dist2(g, p) < (g.size + p.size) * (g.size + p.size) * .25) {
+                    state.gloomies.splice(i, 1);
+                    state.lives -= 1;
+                    ui.lives.textContent = state.lives.toString();
+                    if (!audio.muted && audio.unlocked) {
+                        sfx.hit();
+                    }
+                    p.shield = 1.2;
+                    if (state.lives <= 0) {
+                        gameOver();
+                        break;
+                    }
+                }
+            }
+        }
+        for (let i = state.particles.length - 1; i >= 0; i--) {
+            const pz = state.particles[i];
+            pz.x += pz.vx * dt * 60;
+            pz.y += pz.vy * dt * 60;
+            pz.life -= dt * 1.4;
+            if (pz.life <= 0) {
+                state.particles.splice(i, 1);
+            }
+        }
+    };
+    const render = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const hc = state.contrast;
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, hc ? '#fff' : '#fef9c3');
+        grad.addColorStop(1, hc ? '#ddd' : '#e9d5ff');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        for (const f of state.friends) {
+            drawFriend(f, hc);
+        }
+        for (const c of state.candies) {
+            drawCandy(c, hc);
+        }
+        for (const g of state.gloomies) {
+            drawGloomy(g, hc);
+        }
+        ctx.save();
+        for (const p2 of state.particles) {
+            ctx.globalAlpha = Math.max(0, p2.life);
+            ctx.fillStyle = hc ? '#000' : p2.color;
+            ctx.beginPath();
+            ctx.arc(p2.x, p2.y, p2.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+        if (state.player) {
+            drawKitty(state.player.x, state.player.y, state.player.size, hc);
+            if (state.player.shield > 0) {
+                ctx.save();
+                ctx.globalAlpha = 0.25 + 0.25 * Math.sin(now() / 120);
+                ctx.strokeStyle = hc ? '#000' : '#3b82f6';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.arc(state.player.x, state.player.y, state.player.size * 1.2,
+                    0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    };
+    let last = 0;
+    const loop = t => {
+        const dt = Math.min(0.05, (t - last) / 1000 || 0);
+        last = t;
+        update(dt);
+        render();
+        requestAnimationFrame(loop);
+    };
+    const start = () => {
+        reset();
+        state.running = true;
+        ui.pause.disabled = false;
+        ui.restart.style.display = 'none';
+        ui.overlay.style.display = 'none';
+        ui.play.textContent = 'Playing';
+        ui.play.disabled = true;
+        setModeLabel();
+        if (ui.sound && ui.sound.classList.contains('on')) {
+            audio.unlock();
+            sfx.start();
+        }
+    };
+    const pause = () => {
+        if (!state.running || state.over) {
+            return;
+        }
+        state.paused = !state.paused;
+        ui.pause.textContent = state.paused ? 'Resume' : 'Pause';
+    };
+    const gameOver = () => {
+        state.over = true;
+        state.running = false;
+        ui.play.textContent = 'Play';
+        ui.play.disabled = false;
+        ui.pause.disabled = true;
+        ui.restart.style.display = 'inline-flex';
+        ui.overlay.style.display = 'grid';
+        if (!audio.muted && audio.unlocked) {
+            sfx.gameover();
+        }
+    };
+    const restart = () => {start();};
+    const loadBest = () => {
+        state.best = parseInt(localStorage.getItem(storeKey('best')) || '0', 10)
+            || 0;
+        ui.best.textContent = state.best.toString();
+    };
+    ui.play.addEventListener('click', start);
+    ui.pause.addEventListener('click', pause);
+    ui.restart.addEventListener('click', restart);
+    ui.difficultyBig.addEventListener('change', e => {
+        state.diff = e.target.value;
+        setModeLabel();
+        loadBest();
+        reset();
+    });
+    ui.startBig.addEventListener('click', () => {
+        ui.overlay.style.display = 'none';
+        start();
+    });
+    ui.theme.addEventListener('click', () => {
+        state.contrast = !state.contrast;
+        themeSwap();
+    });
+    ui.sound.addEventListener('click', () => {
+        ui.sound.classList.toggle('on');
+        audio.muted = !ui.sound.classList.contains('on');
+        if (!audio.muted && !audio.unlocked) {
+            audio.unlock();
+        }
+    });
+    window.addEventListener('resize', setCanvas);
+    window.addEventListener('keydown', e => {
+        if ([
+            'ArrowLeft',
+            'ArrowRight',
+            'ArrowUp',
+            'ArrowDown',
+            'a',
+            's',
+            'd',
+            'w'].includes(e.key)) {
+            state.keys[e.key] = true;
+        }
+        if (e.key === 'p' || e.key === 'P') {
+            pause();
+        }
+    });
+    window.addEventListener('keyup', e => {state.keys[e.key] = false});
+    canvas.addEventListener('touchstart', e => {
+        const t = e.touches[0];
+        state.touch = {sx: t.clientX, sy: t.clientY, dx: 0, dy: 0}
+    }, {passive: true});
+    canvas.addEventListener('touchmove', e => {
+        const t = e.touches[0];
+        if (state.touch) {
+            const dx = t.clientX - state.touch.sx,
+                dy = t.clientY - state.touch.sy;
+            const m = Math.hypot(dx, dy) || 1;
+            state.touch.dx = dx / m;
+            state.touch.dy = dy / m
+        }
+    }, {passive: true});
+    canvas.addEventListener('touchend', () => {state.touch = null},
+        {passive: true});
+    setCanvas();
+    themeSwap();
+    loadBest();
+    reset();
+    setModeLabel();
+    requestAnimationFrame(loop)
+})();
